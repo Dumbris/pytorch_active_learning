@@ -28,6 +28,8 @@ import os
 from random import shuffle
 from collections import defaultdict	
 
+from trunklucator import WebUI
+
 
 __author__ = "Robert Munro"
 __license__ = "MIT"
@@ -109,15 +111,9 @@ evaluation_count = len(evaluation_data)
 
 data = load_data(unlabeled_data, skip_already_labeled=True)
 
-annotation_instructions = "Please type 1 if this message is disaster-related, "
-annotation_instructions += "or hit Enter if not.\n"
-annotation_instructions += "Type 2 to go back to the last message, "
-annotation_instructions += "type d to see detailed definitions, "
-annotation_instructions += "or type s to save your annotations.\n"
-
 last_instruction = "All done!\n"
-last_instruction += "Type 2 to go back to change any labels,\n"
-last_instruction += "or Enter to save your annotations."
+last_instruction += "Press left arrow to go back to change any labels,\n"
+last_instruction += "or E to save your annotations."
 
 detailed_instructions = "A 'disaster-related' headline is any story about a disaster.\n"
 detailed_instructions += "It includes:\n"
@@ -128,7 +124,6 @@ detailed_instructions += "It does not include:\n"
 detailed_instructions += "  - criminal acts and non-disaster-related police work\n"
 detailed_instructions += "  - post-response activity like disaster-related memorials.\n\n"
 
-
 def get_annotations(data, default_sampling_strategy="random"):
     """Prompts annotator for label from command line and adds annotations to data 
     
@@ -138,47 +133,57 @@ def get_annotations(data, default_sampling_strategy="random"):
         default_sampling_strategy -- strategy to use for each item if not already specified
     """
 
-    ind = 0
-    while ind <= len(data):
-        if ind < 0:
-            ind = 0 # in case you've gone back before the first
-        if ind < len(data):
-            textid = data[ind][0]
-            text = data[ind][1]
-            label = data[ind][2]
-            strategy =  data[ind][3]
+    controls = [
+                {'label':'disaster-related (a)', 'value':1, 'shortcut':"['a']"}, 
+                {'label':'not related (x)', 'value':0, 'shortcut':"['x']"}, 
+                {'label':'back (arrow left)', 'value':2, 'shortcut':"['arrowleft']"}, 
+                {'label':'save and exit (e)', 'value':"s", 'shortcut':"['e']"}, 
+            ]
 
-            if textid in already_labeled:
-                print("Skipping seen "+label)
-                ind+=1
-            else:
-                print(annotation_instructions)
-                label = str(input(text+"\n\n> ")) 
 
-                if label == "2":                   
-                    ind-=1  # go back
-                elif label == "d":                    
-                    print(detailed_instructions) # print detailed instructions
-                elif label == "s":
-                    break  # save and exit
+    with WebUI(context={'buttons':controls, 'title':'News annotation'}) as tru: # start http server in background
+        ind = 0
+        tru.update({"html":"<br><h3>Instruction</h3><br><pre>"+detailed_instructions+"</pre>"})
+        while ind <= len(data):
+            if ind < 0:
+                ind = 0 # in case you've gone back before the first
+            if ind < len(data):
+                textid = data[ind][0]
+                text = '<h5>'+data[ind][1]+'</h5>'
+                label = data[ind][2]
+                strategy =  data[ind][3]
+
+                if textid in already_labeled:
+                    print("Skipping seen "+label)
+                    ind+=1
                 else:
-                    if not label == "1":
-                        label = "0" # treat everything other than 1 as 0
-                        
-                    data[ind][2] = label # add label to our data
+                    label = tru.ask({"html": text})
+                    label = str(label.y)
+                    tru.update({"html":""})
 
-                    if data[ind][3] is None or data[ind][3] == "":
-                        data[ind][3] = default_sampling_strategy # add default if none given
-                    ind+=1        
+                    if label == "2":                   
+                        ind-=1  # go back
+                    elif label == "s":
+                        break  # save and exit
+                    else:
+                        if not label == "1":
+                            label = "0" # treat everything other than 1 as 0
+                            
+                        data[ind][2] = label # add label to our data
 
-        else:
-            #last one - give annotator a chance to go back
-            print(last_instruction)
-            label = str(input("\n\n> ")) 
-            if label == "2":
-                ind-=1
+                        if data[ind][3] is None or data[ind][3] == "":
+                            data[ind][3] = default_sampling_strategy # add default if none given
+                        ind+=1        
+
             else:
-                ind+=1
+                #last one - give annotator a chance to go back
+                tru.update({"html":"<br><pre>"+last_instruction+"</pre>"})
+                label = tru.ask({"html": text})
+                label = str(label.y)
+                if label == "2":
+                    ind-=1
+                else:
+                    ind+=1
 
     return data
 
